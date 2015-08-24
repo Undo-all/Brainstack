@@ -2,6 +2,7 @@ import Control.Monad.State
 import Control.Monad.Writer
 import Control.Monad.Except
 import Data.Char
+import Text.Read (readMaybe)
 
 data CompilerState = CompilerState
                    { cellPtr :: Int
@@ -74,8 +75,16 @@ data Value = Int Int
            | Char Char deriving (Eq, Show)
 
 data Ins = Drop
-         | Out
-         | Add deriving (Eq, Show)
+         | Dup
+         | Swap
+         | Over
+         | Rot 
+         | Inc
+         | Dec
+         | Add 
+         | Sub 
+         | Mul 
+         | RawOutput deriving (Eq, Show)
 
 data Expr = Literal Value
           | Instruction Ins
@@ -87,20 +96,33 @@ compileValue :: Value -> Compiler
 compileValue (Int n) = push n
 compileValue (Char c) = push (ord c)
 
+translate :: String -> Compiler
+translate = fmap last . mapM getIns . words
+  where getIns "v"      = pop
+        getIns ('^':xs) = case readMaybe xs :: Maybe Int of
+                            Just n -> push n
+                            Nothing -> tell ('^':xs)
+        getIns xs = case readMaybe xs :: Maybe Int of
+                      Just n -> guideToOffset n
+                      Nothing -> tell xs
+
 compileIns :: Ins -> Compiler
 compileIns Drop = pop
-compileIns Out = 
-    do guideToOffset 0
-       tell "."
-       pop
+compileIns Dup = 
+    translate "^0 ^0 2 [ 1 + 0 + -] 0 [ 2 + 0 -] v"
+compileIns Swap = 
+    translate "^0 1 [ 0 + 1 -] 2 [ 1 + 2 -] 0 [ 2 + 0 - ] v"
+compileIns RawOutput = translate "0 ."
+compileIns Inc = 
+    translate "0 +"
+compileIns Dec = 
+    translate "0 -"
 compileIns Add = 
-    do guideToOffset 0
-       tell "["
-       guideToOffset 1
-       tell "+"
-       guideToOffset 0
-       tell "-]"
-       pop
+    translate "0 [ 1 + 0 -] v"
+compileIns Sub = 
+    translate "0 [ 1 - 0 -] v"
+compileIns Mul = 
+    translate "^0 ^0 3 [ 1 + 3 -] 1 [ 2 [ 3 + 0 + 2 -] 0 [ 2 + 0 - ] 1 -] v v v"
 
 compileIfElse = undefined
 compileWhen = undefined
@@ -117,6 +139,9 @@ compileExprs :: [Expr] -> Either String String
 compileExprs xs = runCompiler $ last <$> mapM compileExpr xs 
 
 main = do
-    either putStrLn putStrLn $ compileExprs [Literal $ Int 50, Literal $ Int 50, Instruction Add, Instruction Out]
-    
+    either putStrLn putStrLn $ compileExprs [ Literal $ Int 10 
+                                            , Literal $ Int 10
+                                            , Instruction Mul
+                                            , Instruction RawOutput
+                                            ]
 
